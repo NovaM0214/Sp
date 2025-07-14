@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>Spotbonus个人奖头像生成器</title>
+<style>
+body {
+  font-family: Arial, sans-serif;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+}
+
+#canvas {
+  border: 1px solid #ccc;
+  margin-bottom: 20px;
+}
+
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+button, input[type="file"] {
+  padding: 10px;
+  font-size: 16px;
+}
+
+#preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.preview-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.preview-canvas {
+  border: 1px solid #ccc;
+  margin-bottom: 5px;
+}
+
+#message {
+  margin-top: 20px;
+  font-weight: bold;
+}
+
+h1 {
+    font-size: 28px;
+    font-weight: bold;
+    }
+</style>
+</head>
+<body>
+  <h1>Spotbonus个人奖头像生成器</h1>
+  <canvas id="canvas" width="614" height="675" style="display: none;"></canvas>
+  <div class="controls">
+    <input type="file" id="fileInput" multiple accept="image/*">
+    <button id="compositeButton" disabled>生成图像</button>
+    <button id="downloadButton">下载全部文件</button>
+    <button id="clearButton">清除历史生成</button>
+  </div>
+  <div id="preview"></div>
+  <div id="message"></div>
+
+  <script src="js/jszip.min.js"></script>
+  <script src="js/FileSaver.min.js"></script>
+
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const fileInput = document.getElementById('fileInput');
+    const compositeButton = document.getElementById('compositeButton');
+    const downloadButton = document.getElementById('downloadButton');
+    const clearButton = document.getElementById('clearButton');
+    const previewContainer = document.getElementById('preview');
+    const messageElement = document.getElementById('message');
+
+    const bottomImage = new Image();
+    bottomImage.src = 'images/Buckground.png';
+
+    const topImage = new Image();
+    topImage.crossOrigin = "anonymous";
+    topImage.src = 'images/headkuang.png';
+
+    let compositedImages = [];
+
+    function drawEllipse(ctx, x, y, w, h) {
+      const kappa = .5522848,
+            ox = (w / 2) * kappa,
+            oy = (h / 2) * kappa,
+            xe = x + w,
+            ye = y + h,
+            xm = x + w / 2,
+            ym = y + h / 2;
+
+      ctx.beginPath();
+      ctx.moveTo(x, ym);
+      ctx.bezierCurveTo(x, ym - oy, xm - ox, y, xm, y);
+      ctx.bezierCurveTo(xm + ox, y, xe, ym - oy, xe, ym);
+      ctx.bezierCurveTo(xe, ym + oy, xm + ox, ye, xm, ye);
+      ctx.bezierCurveTo(xm - ox, ye, x, ym + oy, x, ym);
+      ctx.closePath();
+    }
+
+    function compositeImage(inputImage) {
+      return new Promise((resolve) => {
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 614;
+        tempCanvas.height = 675;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        // Draw bottom layer (Buckground.png)
+        tempCtx.drawImage(bottomImage, 53, 52, 508, 514);
+
+        // Draw middle layer (uploaded image in ellipse)
+        tempCtx.save();
+        drawEllipse(tempCtx, 53, 54, 508, 514);
+        tempCtx.clip();
+
+        // Calculate scaling and positioning to fill the ellipse
+        const scale = Math.max(508 / inputImage.width, 514 / inputImage.height);
+        const scaledWidth = inputImage.width * scale;
+        const scaledHeight = inputImage.height * scale;
+        const offsetX = 53 + (508 - scaledWidth) / 2;
+        const offsetY = 54 + (514 - scaledHeight) / 2;
+
+        tempCtx.drawImage(inputImage, offsetX, offsetY, scaledWidth, scaledHeight);
+        tempCtx.restore();
+
+        // Draw top layer (headkuang.png)
+        tempCtx.drawImage(topImage, 0, 0, 614, 675);
+
+        resolve(tempCanvas);
+      });
+    }
+
+    function createPreviewItem(canvas, fileName) {
+      const previewCanvas = document.createElement('canvas');
+      previewCanvas.width = canvas.width / 2;
+      previewCanvas.height = canvas.height / 2;
+      previewCanvas.className = 'preview-canvas';
+      const previewCtx = previewCanvas.getContext('2d');
+      previewCtx.drawImage(canvas, 0, 0, previewCanvas.width, previewCanvas.height);
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = fileName;
+
+      const previewItem = document.createElement('div');
+      previewItem.className = 'preview-item';
+      previewItem.appendChild(previewCanvas);
+      previewItem.appendChild(nameSpan);
+
+      return previewItem;
+    }
+
+    async function handleComposite() {
+      compositedImages = [];
+      previewContainer.innerHTML = '';
+      messageElement.textContent = '';
+
+      const files = fileInput.files;
+      if (files.length === 0) {
+        messageElement.textContent = '请先选择图片文件。';
+        return;
+      }
+
+      messageElement.textContent = '正在生成中，请稍候...';
+
+      for (const file of files) {
+        const img = new Image();
+        img.src = URL.createObjectURL(file);
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+        });
+
+        const compositedCanvas = await compositeImage(img);
+        compositedImages.push({ canvas: compositedCanvas, fileName: file.name });
+
+        const previewItem = createPreviewItem(compositedCanvas, file.name);
+        previewContainer.appendChild(previewItem);
+        URL.revokeObjectURL(img.src); // Revoke object URL to free memory
+      }
+
+      messageElement.textContent = `${compositedImages.length} 张图像生成成功`;
+    }
+
+    async function handleDownload() {
+      if (compositedImages.length === 0) {
+        messageElement.textContent = '没有可下载的图像。请先生成图像。';
+        return;
+      }
+      const zip = new JSZip();
+
+      for (const { canvas, fileName } of compositedImages) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
+        const nameWithoutExt = fileName.lastIndexOf('.') > -1 ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName;
+        zip.file(`${nameWithoutExt}.png`, blob);
+      }
+
+      const content = await zip.generateAsync({ type: "blob" });
+      saveAs(content, "Spotbonus个人奖生成图像.zip");
+    }
+
+    function handleClear() {
+      compositedImages = [];
+      previewContainer.innerHTML = '';
+      messageElement.textContent = '';
+      fileInput.value = '';
+    }
+
+    compositeButton.addEventListener('click', handleComposite);
+    downloadButton.addEventListener('click', handleDownload);
+    clearButton.addEventListener('click', handleClear);
+
+    // Ensure base images are loaded before allowing compositing
+    Promise.all([
+      new Promise((resolve, reject) => { bottomImage.onload = resolve; bottomImage.onerror = reject; }),
+      new Promise((resolve, reject) => { topImage.onload = resolve; topImage.onerror = reject; })
+    ]).then(() => {
+      compositeButton.disabled = false;
+    }).catch(err => {
+        messageElement.textContent = '加载基础图片失败，请检查网络或文件路径。';
+        console.error(err);
+    });
+  </script>
+</body>
+</html>
